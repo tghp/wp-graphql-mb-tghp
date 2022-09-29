@@ -142,7 +142,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 }
 
                 foreach ($settingsPages as $settingsPage) {
-                    if (!$settingsFields[self::_graphql_label($settingsPage)]) {
+                    if (!isset($settingsFields[self::_graphql_label($settingsPage)])) {
                         $settingsFields[self::_graphql_label($settingsPage)] = [];
                     }
 
@@ -150,11 +150,11 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                         if (in_array($field['type'], self::$media_fields)) {
                             if ($field['clone'] == true || $field['multiple'] == true) {
                                 $fieldDefinition = [
-                                    'type' => ['list_of' => 'Media'],
+                                    'type' => ['list_of' => 'MediaItem'],
                                 ];
                             } else {
                                 $fieldDefinition = [
-                                    'type' => 'Media',
+                                    'type' => 'MediaItem',
                                 ];
                             }
                         } else if (in_array($field['type'], self::$taxonomy_fields)) {
@@ -191,52 +191,6 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                     'fields' => $fields,
                 ]);
             }
-
-            register_graphql_object_type('Media', [
-                'description' => 'Media object',
-                'fields' => [
-                    'id' => [
-                        'type' => 'ID',
-                        'description' => 'The ID of the media object.',
-                    ],
-                    'url' => [
-                        'type' => 'String',
-                        'description' => 'The URL of the media object.',
-                    ],
-                    'srcset' => [
-                        'type' => 'String',
-                        'description' => 'The srcset of the media object.',
-                    ],
-                    'title' => [
-                        'type' => 'String',
-                        'description' => 'The title of the media object.',
-                    ],
-                    'width' => [
-                        'type' => 'String',
-                        'description' => 'The width of the media object original image.',
-                    ],
-                    'height' => [
-                        'type' => 'String',
-                        'description' => 'The height of the media object original image.',
-                    ],
-                    'description' => [
-                        'type' => 'String',
-                        'description' => 'The description of the media object.',
-                    ],
-                    'caption' => [
-                        'type' => 'String',
-                        'description' => 'The caption of the media object.',
-                    ],
-                    'alt' => [
-                        'type' => 'String',
-                        'description' => 'The alt of the media object.',
-                    ],
-                    'name' => [
-                        'type' => 'String',
-                        'description' => 'The name of the media object.',
-                    ],
-                ],
-            ]);
 
             register_graphql_object_type('Term', [
                 'description' => 'Term object',
@@ -276,19 +230,11 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                     if (in_array($field['type'], self::$group_fields)) {
                         $group_type_name = ucfirst(self::_graphql_label($field['id']));
                         $group_fields = [];
+                        $image_group_fields = [];
+
                         foreach ($field['fields'] as $group_sub_field) {
                             if (in_array($group_sub_field['type'], self::$media_fields)) {
-                                if (($group_sub_field['clone'] == true || $group_sub_field['multiple'] == true)) {
-                                    $group_fields[self::_graphql_label($group_sub_field['id'])] = [
-                                        'type' => ['list_of' => 'Media'],
-                                        'description' => "Group field - {$group_sub_field['name']}",
-                                    ];
-                                } else {
-                                    $group_fields[self::_graphql_label($group_sub_field['id'])] = [
-                                        'type' => 'Media',
-                                        'description' => "Group field - {$group_sub_field['name']}",
-                                    ];
-                                }
+                                $image_group_fields[] = $group_sub_field;
                             } else {
                                 $group_fields[self::_graphql_label($group_sub_field['id'])] = [
                                     'type' => 'String',
@@ -301,6 +247,32 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                             'description' => "Metabox Group {$group_type_name} object",
                             'fields' => $group_fields,
                         ]);
+
+                        if ($image_group_fields) {
+                            foreach ($image_group_fields as $image_group_field) {
+                                register_graphql_connection([
+                                    'fromType' => $group_type_name,
+                                    'toType' => 'MediaItem',
+                                    'fromFieldName' => self::_graphql_label($image_group_field['id']),
+                                    'resolve' => function( $item, $args, $context, $info ) use ($object_type, $image_group_field) {
+                                        if (isset($item[$image_group_field['id']]) && is_array($item[$image_group_field['id']])) {
+                                            if (($image_group_field['clone'] == true || $image_group_field['multiple'] == true)) {
+                                                $ids = array_map(function ($image) {
+                                                    return $image['ID'];
+                                                }, $item[$image_group_field['id']]);
+                                            } else {
+                                                $ids = [$item[$image_group_field['id']]['ID']];
+                                            }
+
+                                            $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
+                                            $resolver->set_query_arg('post__in', $ids);
+
+                                            return $resolver->get_connection();
+                                        }
+                                    },
+                                ]);
+                            }
+                        }
 
                         if (($field['clone'] == true || $field['multiple'] == true)) {
                             register_graphql_field($graphql_single_name, $field_name, [
@@ -322,33 +294,22 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                             ]);
                         }
                     } else if (in_array($field['type'], self::$media_fields)) {
-                        // TODO: How do we deal with something like image_advanced with multiple images, or file?
+                        // TODO: Does single_image work?
+                        register_graphql_connection([
+                            'fromType' => $graphql_single_name,
+                            'toType' => 'MediaItem',
+                            'fromFieldName' => $field_name,
+                            'resolve' => function( \WPGraphQL\Model\Post $post, $args, $context, $info ) use ($object_type, $field) {
+                                $meta = self::_get_meta_value($field, $post->ID, $object_type);
+                                $ids = array_keys($meta);
+                                if (!empty($ids)) {
+                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($post, $args, $context, $info, 'attachment');
+                                    $resolver->set_query_arg('post__in', $ids);
 
-                        if (($field['clone'] == true || $field['multiple'] == true)) {
-                            register_graphql_field($graphql_single_name, $field_name, [
-                                'type' => ['list_of' => 'Media'],
-                                'description' => $field['desc'],
-                                'resolve' => function ($object) use ($object_type, $field) {
-                                    $meta = self::_get_meta_value($field, $object, $object_type);
-
-                                    foreach ($meta as &$metaValue) {
-                                        $metaValue = self::_convert_wp_internal($metaValue);
-                                    }
-
-                                    return $meta;
-                                },
-                            ]);
-                        } else {
-                            register_graphql_field($graphql_single_name, $field_name, [
-                                'type' => 'Media',
-                                'description' => $field['desc'],
-                                'resolve' => function ($object) use ($object_type, $field) {
-                                    $meta = self::_get_meta_value($field, $object, $object_type);
-                                    $meta = self::_convert_wp_internal($meta);
-                                    return $meta;
-                                },
-                            ]);
-                        }
+                                    return $resolver->get_connection();
+                                }
+                            },
+                        ]);
                     } else if (in_array($field['type'], self::$taxonomy_fields)) {
                         if ($field['clone'] == false && $field['multiple'] == false) {
                             register_graphql_field($graphql_single_name, $field_name, [
@@ -634,18 +595,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 // The data is a class, so try and fingerprint it and return the appropriate data
                 if (isset($instance['image_meta'])) {
                     // Is an array representing an image
-                    return [
-                        'id' => $instance['ID'],
-                        'url' => $instance['full_url'],
-                        'srcset' => $instance['srcset'],
-                        'title' => $instance['title'],
-                        'width' => $instance['width'],
-                        'height' => $instance['height'],
-                        'description' => $instance['description'],
-                        'caption' => $instance['caption'],
-                        'alt' => $instance['alt'],
-                        'name' => $instance['name'],
-                    ];
+                    return $instance['image_meta'];
                 } else if (isset($instance['url'])) {
                     return [
                         'id' => $instance['ID'],
