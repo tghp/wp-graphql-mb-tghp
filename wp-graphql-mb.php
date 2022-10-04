@@ -301,7 +301,15 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                             'fromFieldName' => $field_name,
                             'resolve' => function( \WPGraphQL\Model\Post $post, $args, $context, $info ) use ($object_type, $field) {
                                 $meta = self::_get_meta_value($field, $post->ID, $object_type);
-                                $ids = array_keys($meta);
+
+                                if (($field['clone'] == true || $field['multiple'] == true)) {
+                                    $ids = array_map(function ($image) {
+                                        return $image['ID'];
+                                    }, $meta);
+                                } else {
+                                    $ids = [$meta['ID']];
+                                }
+
                                 if (!empty($ids)) {
                                     $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($post, $args, $context, $info, 'attachment');
                                     $resolver->set_query_arg('post__in', $ids);
