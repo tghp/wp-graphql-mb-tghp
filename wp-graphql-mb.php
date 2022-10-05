@@ -445,7 +445,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 $meta = rwmb_meta(
                     $field['id'],
                     null,
-                    ($object instanceof \WP_Post) ? $object->ID : intval($object)
+                    ($object instanceof \WPGraphQL\Model\Post) ? $object->ID : intval($object)
                 );
             }
 
@@ -453,7 +453,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 $meta = rwmb_meta(
                     $field['id'],
                     ['object_type' => 'term'],
-                    ($object instanceof \WP_Term) ? $object->term_id : intval($object)
+                    ($object instanceof \WPGraphQL\Model\Term) ? $object->term_id : intval($object)
                 );
             }
 
