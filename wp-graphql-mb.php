@@ -3,7 +3,7 @@
  * Plugin Name: WP GraphQL Meta Box Custom Fields (TGHP Version)
  * Description: Exposes all registered Meta Box Custom Fields to the WPGraphQL EndPoint.
  * Author: TGHP / Niklas Dahlqvist
- * Version: 2.2.0
+ * Version: 2.3.0
  * License: GPL2+
  */
 
