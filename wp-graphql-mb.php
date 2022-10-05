@@ -3,7 +3,7 @@
  * Plugin Name: WP GraphQL Meta Box Custom Fields (TGHP Version)
  * Description: Exposes all registered Meta Box Custom Fields to the WPGraphQL EndPoint.
  * Author: TGHP / Niklas Dahlqvist
- * Version: 1.0
+ * Version: 2.2.0
  * License: GPL2+
  */
 
@@ -227,6 +227,16 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 foreach ($box->fields as $field) {
                     $field_name = self::_graphql_label($field['id']);
 
+                    if ($box->get_object_type() === 'term') {
+                        if (!isset($box->meta_box['taxonomies']) || empty($box->meta_box['taxonomies'])) {
+                            continue;
+                        }
+
+                        if (!in_array($object_type, $box->meta_box['taxonomies'])) {
+                            continue;
+                        }
+                    }
+
                     if (in_array($field['type'], self::$group_fields)) {
                         $group_type_name = ucfirst(self::_graphql_label($field['id']));
                         $group_fields = [];
@@ -299,8 +309,12 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                             'fromType' => $graphql_single_name,
                             'toType' => 'MediaItem',
                             'fromFieldName' => $field_name,
-                            'resolve' => function( \WPGraphQL\Model\Post $post, $args, $context, $info ) use ($object_type, $field) {
-                                $meta = self::_get_meta_value($field, $post->ID, $object_type);
+                            'resolve' => function($item, $args, $context, $info ) use ($object_type, $field) {
+                                if ($item instanceof \WPGraphQL\Model\Post) {
+                                    $meta = self::_get_meta_value($field, $item->ID, $object_type);
+                                } else if ($item instanceof \WPGraphQL\Model\Term) {
+                                    $meta = self::_get_meta_value($field, $item, $object_type);
+                                }
 
                                 if (($field['clone'] == true || $field['multiple'] == true)) {
                                     $ids = array_map(function ($image) {
@@ -428,15 +442,28 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
             $meta = null;
 
             if ('post' === $object_type || in_array($object_type, get_post_types(), true)) {
-                $meta = rwmb_meta($field['id'], null, $object->ID);
+                $meta = rwmb_meta(
+                    $field['id'],
+                    null,
+                    ($object instanceof \WP_Post) ? $object->ID : intval($object)
+                );
             }
 
             if ('term' === $object_type || in_array($object_type, get_taxonomies(), true)) {
-                $meta = rwmb_meta($field['id'], ['object_type' => 'term'], $object->term_id);
+                $meta = rwmb_meta(
+                    $field['id'],
+                    ['object_type' => 'term'],
+                    ($object instanceof \WP_Term) ? $object->term_id : intval($object)
+                );
             }
 
             if ('user' === $object_type) {
                 $meta = rwmb_meta($field['id'], ['object_type' => 'user'], $object->ID);
+                $meta = rwmb_meta(
+                    $field['id'],
+                    ['object_type' => 'term'],
+                    ($object instanceof \WP_User) ? $object->ID : intval($object)
+                );
             }
 
             if ('setting' === $object_type) {
