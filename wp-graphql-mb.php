@@ -147,6 +147,10 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                     }
 
                     foreach($settingsMetabox->meta_box['fields'] as $field) {
+                        if (empty($field['id'])) {
+                            continue;
+                        }
+
                         if (in_array($field['type'], self::$media_fields)) {
                             if ($field['clone'] == true || $field['multiple'] == true) {
                                 $fieldDefinition = [
@@ -225,6 +229,10 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
 
             foreach ($boxes as $box) {
                 foreach ($box->fields as $field) {
+                    if (empty($field['id'])) {
+                        continue;
+                    }
+
                     $field_name = self::_graphql_label($field['id']);
 
                     if ($box->get_object_type() === 'term') {
