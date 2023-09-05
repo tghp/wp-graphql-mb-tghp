@@ -90,6 +90,21 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 }
             }
 
+            if (class_exists('\WPGraphQLGutenberg\Schema\Types\BlockTypes')) {
+                // Add fields for meta boxes relating to blocks
+                foreach ($this->get_types('post_with_blocks') as $type => $object) {
+                    if (isset($object->graphql_single_name)) {
+                        add_action('graphql_register_types', function ($fields) use ($type, $object) {
+                            $this->add_block_meta_fields(
+                                $this->get_block_meta_boxes(),
+                                $fields,
+                                $type,
+                            );
+                        });
+                    }
+                }
+            }
+
             // Add fields for meta boxes relating to settings
             add_action('graphql_register_types', function () {
                 $settingsPages = apply_filters('mb_settings_pages', []);
@@ -333,7 +348,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                                 }
 
                                 if (!empty($ids)) {
-                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($post, $args, $context, $info, 'attachment');
+                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
                                     $resolver->set_query_arg('post__in', $ids);
 
                                     return $resolver->get_connection();
@@ -405,6 +420,179 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
             return $fields;
         }
 
+        public function add_block_meta_fields($boxes, $fields, $object_type)
+        {
+            if (!class_exists('\WPGraphQLGutenberg\Schema\Types\BlockTypes')) {
+                return;
+            }
+
+            foreach ($boxes as $box) {
+                $graphql_single_name = 'MetaBox' . \WPGraphQLGutenberg\Schema\Types\BlockTypes::format_block_name($box->id);
+
+                foreach ($box->fields as $field) {
+                    if (empty($field['id'])) {
+                        continue;
+                    }
+
+                    $blockPrefix = 'field';
+                    $field_name = self::_graphql_label($blockPrefix . '_' . $field['id']);
+
+                    if (in_array($field['type'], self::$group_fields)) {
+                        $group_type_name = ucfirst(self::_graphql_label($graphql_single_name . '_' . $blockPrefix . '_' . $field['id']));
+                        $group_fields = [];
+                        $image_group_fields = [];
+
+                        foreach ($field['fields'] as $group_sub_field) {
+                            if (in_array($group_sub_field['type'], self::$media_fields)) {
+                                $image_group_fields[] = $group_sub_field;
+                            } else {
+                                $group_fields[self::_graphql_label($group_sub_field['id'])] = [
+                                    'type' => 'String',
+                                    'description' => "Group field - {$group_sub_field['name']}",
+                                ];
+                            }
+                        }
+
+                        register_graphql_object_type($group_type_name, [
+                            'description' => "Metabox Block Field Group {$group_type_name} object",
+                            'fields' => $group_fields,
+                        ]);
+
+                        if ($image_group_fields) {
+                            foreach ($image_group_fields as $image_group_field) {
+                                register_graphql_connection([
+                                    'fromType' => $group_type_name,
+                                    'toType' => 'MediaItem',
+                                    'fromFieldName' => self::_graphql_label($image_group_field['id']),
+                                    'resolve' => function( $item, $args, $context, $info ) use ($object_type, $image_group_field) {
+                                        if (isset($item[$image_group_field['id']]) && is_array($item[$image_group_field['id']])) {
+                                            if (($image_group_field['clone'] == true || $image_group_field['multiple'] == true)) {
+                                                $ids = $item[$image_group_field['id']];
+                                            } else {
+                                                $ids = [$item[$image_group_field['id']]];
+                                            }
+
+                                            $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
+                                            $resolver->set_query_arg('post__in', $ids);
+
+                                            return $resolver->get_connection();
+                                        }
+                                    },
+                                ]);
+                            }
+                        }
+
+                        if (($field['clone'] == true || $field['multiple'] == true)) {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => ['list_of' => $group_type_name],
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    $meta = self::_get_block_meta_value($field, $object);
+                                    return $meta;
+                                },
+                            ]);
+                        } else {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => $group_type_name,
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    $meta = self::_get_block_meta_value($field, $object);
+                                    return $meta;
+                                },
+                            ]);
+                        }
+                    } else if (in_array($field['type'], self::$media_fields)) {
+                        // TODO: Does single_image work?
+                        register_graphql_connection([
+                            'fromType' => $graphql_single_name,
+                            'toType' => 'MediaItem',
+                            'fromFieldName' => $field_name,
+                            'resolve' => function($item, $args, $context, $info ) use ($object_type, $field) {
+                                /** @var \WPGraphQLGutenberg\Blocks\Block $item */
+                                $meta = self::_get_block_meta_value($field, $item);
+
+                                if (($field['clone'] == true || $field['multiple'] == true)) {
+                                    $ids = $meta;
+                                } else {
+                                    $ids = [$meta];
+                                }
+
+                                if (!empty($ids)) {
+                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
+                                    $resolver->set_query_arg('post__in', $ids);
+
+                                    return $resolver->get_connection();
+                                }
+                            },
+                        ]);
+                    } else if (in_array($field['type'], self::$taxonomy_fields)) {
+                        if ($field['clone'] == false && $field['multiple'] == false) {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => 'Term',
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    $meta = self::_get_block_meta_value($field, $object);
+
+                                    if ($meta) {
+                                        $meta = self::_convert_wp_internal(get_term($meta));
+                                    }
+
+                                    return $meta;
+                                },
+                            ]);
+                        }
+
+                        if (($field['clone'] == true || $field['multiple'] == true)) {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => ['list_of' => 'Term'],
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    $meta = self::_get_block_meta_value($field, $object);
+
+                                    foreach ($meta as &$metaValue) {
+                                        $metaValue = self::_convert_wp_internal(get_term($metaValue));
+                                    }
+
+                                    return $meta;
+                                },
+
+                            ]);
+                        }
+                    } else {
+                        if (($field['clone'] == true || $field['multiple'] == true)) {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => ['list_of' => 'String'],
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    /** @var \WPGraphQLGutenberg\Blocks\Block $object */
+                                    $meta = self::_get_block_meta_value($field, $object);
+
+                                    foreach ($meta as &$metaValue) {
+                                        $metaValue = self::_convert_wp_internal($metaValue);
+                                    }
+
+                                    return $meta;
+                                },
+
+                            ]);
+                        } else {
+                            register_graphql_field($graphql_single_name, $field_name, [
+                                'type' => "string",
+                                'description' => $field['desc'],
+                                'resolve' => function ($object) use ($object_type, $field) {
+                                    /** @var \WPGraphQLGutenberg\Blocks\Block $object */
+                                    $meta = self::_get_block_meta_value($field, $object);
+                                    $meta = self::_convert_wp_internal($meta);
+
+                                    return $meta;
+                                },
+                            ]);
+                        }
+                    }
+                }
+            }
+        }
+
         public function add_settings_meta_fields($boxes, $option_page_id, $options_name, $root_field)
         {
             register_graphql_field('RootQuery', $root_field, [
@@ -435,6 +623,30 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 },
 
             ]);
+        }
+
+        /**
+         * @param $field
+         * @param \WPGraphQLGutenberg\Blocks\Block $object
+         * @return mixed|null
+         */
+        public static function _get_block_meta_value($field, $object)
+        {
+            $meta = null;
+
+            if (property_exists($object, 'attributes')) {
+                $attributes = $object->attributes;
+
+                if (is_array($attributes) && isset($attributes['data'])) {
+                    $data = $attributes['data'];
+
+                    if (isset($data[$field['id']])) {
+                        $meta = $data[$field['id']];
+                    }
+                }
+            }
+
+            return $meta;
         }
 
         /**
@@ -539,6 +751,26 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
         }
 
         /**
+         * Get block metaboxes
+         *
+         * @return array
+         */
+        public function get_block_meta_boxes()
+        {
+            $meta_boxes = \rwmb_get_registry('meta_box')->get_by([
+                'object_type' => 'post',
+            ]);
+
+            foreach ($meta_boxes as $key => $meta_box) {
+                if ($meta_box->type !== 'block') {
+                    unset($meta_boxes[$key]);
+                }
+            }
+
+            return $meta_boxes;
+        }
+
+        /**
          * Get term meta boxes
          *
          * @param array $object Term object.
@@ -586,6 +818,10 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
             switch ($type) {
                 case 'post':
                     return get_post_types([], 'objects');
+                case 'post_with_blocks':
+                    return array_filter(get_post_types([], 'objects'), function ($post_type) {
+                        return post_type_supports($post_type->name, 'editor');
+                    });
                 case 'taxonomy':
                     return get_taxonomies([], 'objects');
             }
