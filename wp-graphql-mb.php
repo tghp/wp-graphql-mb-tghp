@@ -10,6 +10,7 @@
 namespace WPGraphQL\Extensions;
 
 use RWMB_Image_Field;
+use WPGraphQL\Data\Connection\PostObjectConnectionResolver;
 
 if (!defined('ABSPATH')) {
     exit;
@@ -58,6 +59,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
         {
             $this->add_extra_types();
             $this->add_meta_boxes_to_graphQL();
+            $this->add_page_template_connection();
         }
 
         public function add_meta_boxes_to_graphQL()
@@ -887,6 +889,36 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                 }
             }
         }
+
+        public function add_page_template_connection()
+        {
+            register_graphql_connection(
+                [
+                    'fromType' => 'RootQuery',
+                    'toType' => 'Page',
+                    'fromFieldName' => 'pageByTemplate',
+                    'connectionTypeName' => 'PageByTemplateConnection',
+                    'connectionArgs' => [
+                        'template' => [
+                            'type' => 'String',
+                            'description' => 'The page template to filter by.',
+                        ],
+                    ],
+                    'resolve' => function( $id, $args, $context, $info ) {
+                        $resolver   = new PostObjectConnectionResolver( $id, $args, $context, $info, 'page' );
+                        $resolver->set_query_arg( 'meta_query', [
+                            [
+                                'key' => '_wp_page_template',
+                                'value' => $args['where']['template'],
+                            ],
+                        ] );
+                        $connection = $resolver->get_connection();
+                        return $connection;
+                    },
+                ]
+            );
+        }
+
     }
 }
 
