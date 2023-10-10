@@ -10,6 +10,7 @@
 namespace WPGraphQL\Extensions;
 
 use RWMB_Image_Field;
+use RWMB_Video_Field;
 use WPGraphQL\Data\Connection\PostObjectConnectionResolver;
 
 if (!defined('ABSPATH')) {
@@ -35,6 +36,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
             'image_advanced',
             'plupload_image',
             'thickbox_image',
+            'video',
         ];
 
         /**
@@ -60,6 +62,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
             $this->add_extra_types();
             $this->add_meta_boxes_to_graphQL();
             $this->add_page_template_connection();
+            $this->add_cloudinary_to_mediaitem();
         }
 
         public function add_meta_boxes_to_graphQL()
@@ -268,6 +271,10 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                         $image_group_fields = [];
 
                         foreach ($field['fields'] as $group_sub_field) {
+                            if (empty($group_sub_field['id'])) {
+                                continue;
+                            }
+
                             if (in_array($group_sub_field['type'], self::$media_fields)) {
                                 $image_group_fields[] = $group_sub_field;
                             } else {
@@ -290,13 +297,14 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                                     'toType' => 'MediaItem',
                                     'fromFieldName' => self::_graphql_label($image_group_field['id']),
                                     'resolve' => function( $item, $args, $context, $info ) use ($object_type, $image_group_field) {
-                                        if (isset($item[$image_group_field['id']]) && is_array($item[$image_group_field['id']])) {
+                                        $id = self::_graphql_label($image_group_field['id']);
+                                        if (isset($item[$id]) && is_array($item[$id])) {
                                             if (($image_group_field['clone'] == true || $image_group_field['multiple'] == true)) {
                                                 $ids = array_map(function ($image) {
                                                     return $image['ID'];
-                                                }, $item[$image_group_field['id']]);
+                                                }, $item[$id]);
                                             } else {
-                                                $ids = [$item[$image_group_field['id']]['ID']];
+                                                $ids = [$item[$id]['ID']];
                                             }
 
                                             $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
@@ -714,12 +722,22 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
 
                 if (!empty($groupMeta[$originalFieldId])) {
                     if (in_array($field['type'], self::$media_fields)) {
-                        if (is_array($groupMeta[$originalFieldId] )) {
-                            foreach ($groupMeta[$originalFieldId] as $attachment) {
-                                $newGroupMeta[$fieldId][] = RWMB_Image_Field::file_info($attachment, [ 'size' => 'original' ]);
+                        if ($field['type'] === 'video') {
+                            if (is_array($groupMeta[$originalFieldId])) {
+                                foreach ($groupMeta[$originalFieldId] as $attachment) {
+                                    $newGroupMeta[$fieldId][] = RWMB_Video_Field::file_info($attachment, ['size' => 'original']);
+                                }
+                            } else {
+                                $newGroupMeta[$fieldId] = RWMB_Video_Field::file_info($groupMeta[$field['id']], ['size' => 'original']);
                             }
                         } else {
-                            $newGroupMeta[$fieldId] = RWMB_Image_Field::file_info($groupMeta[$field['id']], [ 'size' => 'original' ]);
+                            if (is_array($groupMeta[$originalFieldId])) {
+                                foreach ($groupMeta[$originalFieldId] as $attachment) {
+                                    $newGroupMeta[$fieldId][] = RWMB_Image_Field::file_info($attachment, ['size' => 'original']);
+                                }
+                            } else {
+                                $newGroupMeta[$fieldId] = RWMB_Image_Field::file_info($groupMeta[$field['id']], ['size' => 'original']);
+                            }
                         }
                     } else {
                         $newGroupMeta[$fieldId] = $groupMeta[$originalFieldId];
@@ -917,6 +935,24 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                     },
                 ]
             );
+        }
+
+        public function add_cloudinary_to_mediaitem()
+        {
+            if (!class_exists('\Cloudinary\Media')) {
+                return;
+            }
+
+            add_action('graphql_register_types', function () {
+                register_graphql_field('MediaItem', 'cloudinaryId', [
+                    'type' => 'String',
+                    'description' => 'Cloudinary ID for the media item',
+                    'resolve' => function ($mediaItem) {
+                        $cloudinary = \Cloudinary\get_plugin_instance();
+                        return $cloudinary->get_component('media')->get_public_id($mediaItem->ID);
+                    },
+                ]);
+            });
         }
 
     }
