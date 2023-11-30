@@ -309,6 +309,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
 
                                             $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
                                             $resolver->set_query_arg('post__in', $ids);
+                                            $resolver->set_query_arg('orderby', 'post__in');
 
                                             return $resolver->get_connection();
                                         }
@@ -360,6 +361,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                                 if (!empty($ids)) {
                                     $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
                                     $resolver->set_query_arg('post__in', $ids);
+                                    $resolver->set_query_arg('orderby', 'post__in');
 
                                     return $resolver->get_connection();
                                 }
@@ -484,6 +486,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
 
                                             $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
                                             $resolver->set_query_arg('post__in', $ids);
+                                            $resolver->set_query_arg('orderby', 'post__in');
 
                                             return $resolver->get_connection();
                                         }
@@ -530,6 +533,7 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                                 if (!empty($ids)) {
                                     $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, 'attachment');
                                     $resolver->set_query_arg('post__in', $ids);
+                                    $resolver->set_query_arg('orderby', 'post__in');
 
                                     return $resolver->get_connection();
                                 }
