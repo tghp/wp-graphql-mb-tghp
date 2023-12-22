@@ -332,27 +332,36 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
 
                         if (!empty($post_group_fields)) {
                             foreach ($post_group_fields as $post_group_field) {
-                                register_graphql_connection([
-                                    'fromType' => $group_type_name,
-                                    'toType' => 'Post',
-                                    'fromFieldName' => self::_graphql_label($post_group_field['id']),
-                                    'resolve' => function( $item, $args, $context, $info ) use ($object_type, $post_group_field) {
-                                        $id = self::_graphql_label($post_group_field['id']);
-                                        if (isset($item[$id])) {
-                                            if (($post_group_field['clone'] == true || $post_group_field['multiple'] == true)) {
-                                                $ids = $item[$id];
-                                            } else {
-                                                $ids = [$item[$id]];
-                                            }
+                                if (!empty($post_group_field['post_type']) && is_array($post_group_field['post_type'])) {
+                                    $post_type_name = $post_group_field['post_type'][0];
+                                    $post_type = get_post_type_object($post_type_name);
 
-                                            $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, $post_group_field['post_type'] ?: 'post');
-                                            $resolver->set_query_arg('post__in', $ids);
-                                            $resolver->set_query_arg('orderby', 'post__in');
+                                    if ($post_type && property_exists($post_type, 'graphql_single_name')) {
+                                        $post_type_graphql_name = $post_type->graphql_single_name;
 
-                                            return $resolver->get_connection();
-                                        }
-                                    },
-                                ]);
+                                        register_graphql_connection([
+                                            'fromType' => $group_type_name,
+                                            'toType' => $post_type_graphql_name,
+                                            'fromFieldName' => self::_graphql_label($post_group_field['id']),
+                                            'resolve' => function( $item, $args, $context, $info ) use ($object_type, $post_group_field, $post_type) {
+                                                $id = self::_graphql_label($post_group_field['id']);
+                                                if (isset($item[$id])) {
+                                                    if (($post_group_field['clone'] == true || $post_group_field['multiple'] == true)) {
+                                                        $ids = $item[$id];
+                                                    } else {
+                                                        $ids = [$item[$id]];
+                                                    }
+
+                                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, $post_type->name);
+                                                    $resolver->set_query_arg('post__in', $ids);
+                                                    $resolver->set_query_arg('orderby', 'post__in');
+
+                                                    return $resolver->get_connection();
+                                                }
+                                            },
+                                        ]);
+                                    }
+                                }
                             }
                         }
 
@@ -436,36 +445,45 @@ if (!class_exists('\WPGraphQL\Extensions\MB')) {
                             ]);
                         }
                     } else if (in_array($field['type'], self::$post_fields)) {
-                        register_graphql_connection([
-                            'fromType' => $graphql_single_name,
-                            'toType' => 'Post',
-                            'fromFieldName' => $field_name,
-                            'resolve' => function($item, $args, $context, $info ) use ($object_type, $field) {
-                                if ($item instanceof \WPGraphQL\Model\Post) {
-                                    $meta = self::_get_meta_value($field, $item->ID, $object_type);
-                                } else if ($item instanceof \WPGraphQL\Model\Term) {
-                                    $meta = self::_get_meta_value($field, $item, $object_type);
-                                }
+                        if (!empty($field['post_type']) && is_array($field['post_type'])) {
+                            $post_type_name = $field['post_type'][0];
+                            $post_type = get_post_type_object($post_type_name);
 
-                                if (isset($field['post_type'])) {
-                                    if (($field['clone'] == true || $field['multiple'] == true)) {
-                                        $ids = $meta;
-                                    } else {
-                                        $ids = [$meta];
-                                    }
-                                } else {
-                                    $ids = [];
-                                }
+                            if ($post_type && property_exists($post_type, 'graphql_single_name')) {
+                                $post_type_graphql_name = $post_type->graphql_single_name;
 
-                                if (!empty($ids)) {
-                                    $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, $field['post_type'] ?: 'post');
-                                    $resolver->set_query_arg('post__in', $ids);
-                                    $resolver->set_query_arg('orderby', 'post__in');
+                                register_graphql_connection([
+                                    'fromType' => $graphql_single_name,
+                                    'toType' => $post_type_graphql_name,
+                                    'fromFieldName' => $field_name,
+                                    'resolve' => function( $item, $args, $context, $info ) use ($object_type, $field, $post_type) {
+                                        if ($item instanceof \WPGraphQL\Model\Post) {
+                                            $meta = self::_get_meta_value($field, $item->ID, $object_type);
+                                        } else if ($item instanceof \WPGraphQL\Model\Term) {
+                                            $meta = self::_get_meta_value($field, $item, $object_type);
+                                        }
 
-                                    return $resolver->get_connection();
-                                }
-                            },
-                        ]);
+                                        if (isset($field['post_type'])) {
+                                            if (($field['clone'] == true || $field['multiple'] == true)) {
+                                                $ids = $meta;
+                                            } else {
+                                                $ids = [$meta];
+                                            }
+                                        } else {
+                                            $ids = [];
+                                        }
+
+                                        if (!empty($ids)) {
+                                            $resolver = new \WPGraphQL\Data\Connection\PostObjectConnectionResolver($item, $args, $context, $info, $field['post_type'] ?: 'post');
+                                            $resolver->set_query_arg('post__in', $ids);
+                                            $resolver->set_query_arg('orderby', 'post__in');
+
+                                            return $resolver->get_connection();
+                                        }
+                                    },
+                                ]);
+                            }
+                        }
                     } else {
                         if (($field['clone'] == true || $field['multiple'] == true)) {
                             register_graphql_field($graphql_single_name, $field_name, [
